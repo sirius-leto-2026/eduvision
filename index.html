@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EduVision — прототип</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo" aria-hidden="true">EV</span><div><b>EduVision</b><small>отчёт об образовательном прогрессе ученика · прототип</small></div></div>
+  <nav role="tablist" aria-label="Разделы">
+    <button role="tab" data-tab="students" aria-selected="true">Ученики</button>
+    <button role="tab" data-tab="works">Работы</button>
+    <button role="tab" data-tab="teacher">Кабинет педагога</button>
+    <button role="tab" data-tab="parent">Родителю</button>
+    <button role="tab" data-tab="exp">Опыт</button>
+    <button role="tab" data-tab="data">Данные</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Ученики -->
+  <section id="tab-students" class="tab">
+    <h1>Цифровые профили</h1>
+    <p class="hint">Ученики хранятся только по коду, без ФИО. Говорение и мягкие навыки — интерпретационные направления: их оценивает педагог.</p>
+    <div class="scroll"><table id="studentsTable"></table></div>
+    <form id="addStudent" class="row">
+      <label>Код <input name="code" required placeholder="S-040" pattern="[A-Za-z]-?\d+"></label>
+      <label>Группа <input name="group" required placeholder="A2-1"></label>
+      <label>Уровень <select name="level"><option>A1</option><option selected>A2</option><option>B1</option></select></label>
+      <label class="consent"><input type="checkbox" name="consent" required> Есть письменное согласие родителя (законного представителя) на обработку данных ученика (<a href="privacy.html">политика</a>)</label>
+      <button type="submit">Добавить ученика</button>
+    </form>
+  </section>
+
+  <!-- Работы -->
+  <section id="tab-works" class="tab" hidden>
+    <h1>Загрузка работ</h1>
+    <form id="addWork" class="card">
+      <div class="row">
+        <label>Ученик <select name="student" required></select></label>
+        <label>Урок <select name="lesson" required></select></label>
+        <label>Тип <select name="type"><option value="essay">Письменная работа</option><option value="test">Тест</option></select></label>
+        <label>Дата <input type="date" name="date" required></label>
+      </div>
+      <div class="essay-only">
+        <label class="block">Текст работы
+          <textarea name="text" rows="6" placeholder="Вставьте текст эссе или распознайте фото"></textarea></label>
+        <div class="row">
+          <label>Фото работы <input type="file" id="photo" accept="image/*"></label>
+          <button type="button" id="ocrBtn">Распознать текст (OCR)</button>
+          <span id="ocrStatus" class="hint" aria-live="polite"></span>
+        </div>
+      </div>
+      <div class="test-only row" hidden>
+        <label>Аудирование <input name="l1" type="number" min="0" size="3" placeholder="верно"> из <input name="l2" type="number" min="1" placeholder="всего"></label>
+        <label>Чтение <input name="r1" type="number" min="0" placeholder="верно"> из <input name="r2" type="number" min="1" placeholder="всего"></label>
+        <label>Грамматика <input name="g1" type="number" min="0" placeholder="верно"> из <input name="g2" type="number" min="1" placeholder="всего"></label>
+      </div>
+      <p class="hint">Реальные работы загружаются только с письменного согласия родителей. Фото распознаётся в браузере и никуда не отправляется.</p>
+      <label class="consent"><input type="checkbox" name="consent" required> Есть письменное согласие родителя (законного представителя) на загрузку этой работы (<a href="privacy.html">политика</a>)</label>
+      <button type="submit">Сохранить работу</button>
+    </form>
+    <h2>Работы ученика <select id="worksFilter" aria-label="Ученик"></select></h2>
+    <div id="worksList"></div>
+  </section>
+
+  <!-- Кабинет педагога -->
+  <section id="tab-teacher" class="tab" hidden>
+    <h1>Кабинет педагога</h1>
+    <div class="row">
+      <label>Ученик <select id="tStudent"></select></label>
+      <button id="draftBtn">Сформировать черновик</button>
+      <span id="tStatus" class="badge"></span>
+    </div>
+    <div id="tAnalysis"></div>
+    <div id="tEditor" hidden>
+      <h2>Текст отчёта <small class="hint">можно править</small></h2>
+      <textarea id="tText" rows="22"></textarea>
+      <div id="factBox" class="fact" aria-live="polite"></div>
+      <div class="row">
+        <button id="approveBtn" class="primary">Утвердить и передать родителю</button>
+        <button id="revokeBtn" type="button">Отозвать</button>
+      </div>
+      <details><summary>Запрос для языковой модели (только посчитанные данные)</summary>
+        <p class="hint">Скопируйте в языковую модель, затем вставьте ответ в поле выше — сверка фактов проверит, что в тексте нет чисел и дат, которых нет в данных.</p>
+        <textarea id="tPrompt" rows="14" readonly></textarea>
+        <button id="copyPrompt" type="button">Скопировать</button>
+      </details>
+    </div>
+  </section>
+
+  <!-- Родителю -->
+  <section id="tab-parent" class="tab" hidden>
+    <h1>Отчёт для родителей</h1>
+    <label>Код ученика <select id="pStudent"></select></label>
+    <div id="pReport"></div>
+  </section>
+
+  <!-- Опыт -->
+  <section id="tab-exp" class="tab" hidden>
+    <h1>Опыт «система против педагогов»</h1>
+    <ol class="hint">
+      <li>Скачайте оценки системы по всем ученикам.</li>
+      <li>Педагоги независимо ставят свои баллы в таком же CSV: <code>student,direction,score</code> (направления: listening, reading, writing, speaking, grammar, spelling, teamwork, presentation).</li>
+      <li>Загрузите CSV педагога — система посчитает долю совпадений в пределах ±1 балла.</li>
+    </ol>
+    <div class="row">
+      <button id="dlSystem">Скачать оценки системы (CSV)</button>
+      <label>CSV педагога <input type="file" id="teacherCsv" accept=".csv,text/csv"></label>
+      <button id="demoCsv" type="button">Взять пример</button>
+    </div>
+    <div id="expResult"></div>
+  </section>
+
+  <!-- Данные -->
+  <section id="tab-data" class="tab" hidden>
+    <h1>Данные и конфиденциальность</h1>
+    <ul class="hint">
+      <li>Все данные хранятся только в этом браузере (localStorage); cookie и аналитика не используются.</li>
+      <li>Ученики обозначены кодами, ФИО не вводятся. Реальные работы — только с согласия родителей.</li>
+      <li>Сторонний код: Tesseract.js (лицензия Apache 2.0) загружается с cdn.jsdelivr.net только при нажатии «Распознать текст».</li>
+      <li>Итоговую оценку и текст отчёта утверждает педагог; без утверждения родитель отчёт не видит.</li>
+    </ul>
+    <div class="row">
+      <button id="exportBtn">Экспорт JSON</button>
+      <label>Импорт JSON <input type="file" id="importFile" accept=".json,application/json"></label>
+      <button id="resetBtn">Вернуть демо-данные</button>
+      <button id="wipeBtn" class="danger">Удалить все данные</button>
+    </div>
+    <h2>Библиотека знаний</h2>
+    <div class="scroll"><table id="kbTable"></table></div>
+  </section>
+</main>
+<footer>Прототип проекта «EduVision» · Сириус.Лето 2026/27 · демонстрационные данные · организатор: команда проекта Сириус.Лето · <a href="privacy.html">Политика конфиденциальности</a> · <a href="terms.html">Условия использования</a></footer>
+
+<script src="data.js"></script>
+<script src="analyzer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
