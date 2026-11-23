@@ -256,15 +256,27 @@
     state.works = state.works.filter(w => w.id !== id); save(); renderWorks();
   });
 
-  // OCR (Tesseract.js загружается только по кнопке)
-  function loadTesseract() {
+  // OCR (Tesseract.js загружается только по кнопке; несколько CDN — на случай недоступности одного)
+  const TESSERACT_CDNS = [
+    "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
+    "https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js",
+  ];
+  function loadFrom(url) {
     return new Promise((res, rej) => {
-      if (window.Tesseract) return res(window.Tesseract);
       const s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
-      s.onload = () => res(window.Tesseract); s.onerror = () => rej(new Error("не удалось загрузить Tesseract.js — нужен интернет"));
+      s.src = url;
+      s.onload = () => (window.Tesseract ? res(window.Tesseract) : rej(new Error("пустой ответ")));
+      s.onerror = () => rej(new Error("не загрузилось"));
       document.head.appendChild(s);
     });
+  }
+  async function loadTesseract() {
+    if (window.Tesseract) return window.Tesseract;
+    for (const url of TESSERACT_CDNS) {
+      try { return await loadFrom(url); } catch { /* следующий CDN */ }
+    }
+    throw new Error("не удалось загрузить распознаватель: сеть ограничивает доступ к CDN. Вставьте текст работы вручную — остальное работает без интернета");
   }
   $("#ocrBtn").addEventListener("click", async () => {
     const file = $("#photo").files[0], st = $("#ocrStatus");
