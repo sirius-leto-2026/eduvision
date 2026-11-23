@@ -59,3 +59,9 @@ code { background: var(--soft); padding: 1px 5px; border-radius: 4px; }
 
 .consent { font-size: 14px; color: var(--ink); display: block; flex-basis: 100%; }
 footer a { color: var(--blue); }
+
+/* Юридические страницы */
+.legal { max-width: 780px; margin: 24px auto; padding: 0 16px; }
+.legal ul { padding-left: 20px; }
+.legal li { margin: 6px 0; }
+.legal footer { padding: 20px 0 8px; }
