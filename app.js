@@ -7,13 +7,34 @@
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const clone = o => JSON.parse(JSON.stringify(o));
+  const LEVEL_NAMES = { A1: "A1 — начальный", A2: "A2 — элементарный", B1: "B1 — средний" };
 
   let state;
+  const statusEl = $("#saveStatus");
+  function announce(msg, bad) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.classList.toggle("bad", !!bad);
+  }
+  function normalize(s) {
+    return {
+      students: s.students.filter(x => x && x.code),
+      works: Array.isArray(s.works) ? s.works.filter(x => x && x.student) : [],
+      reports: s.reports && typeof s.reports === "object" ? s.reports : {}
+    };
+  }
   function load() {
-    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.students) return s; } catch (e) { /* нет доступа */ }
+    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.students)) return normalize(s); } catch (e) { /* нет доступа */ }
     return { ...clone(DEMO), reports: {} };
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* приватный режим */ } }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); announce("Сохранено в этом браузере в " + new Date().toLocaleTimeString("ru-RU")); return true; }
+    catch (e) { announce("Не удалось сохранить изменения: браузер блокирует localStorage.", true); return false; }
+  }
+  function emptyState(title, text, buttons) {
+    return `<div class="empty"><h2>${esc(title)}</h2><p>${esc(text)}</p><div class="row">${buttons || ""}</div></div>`;
+  }
+  function loadDemo() { state = { ...clone(DEMO), reports: {} }; save(); render(currentTab); }
   state = load();
 
   const lessonTitle = id => { const l = KB.lessons.find(x => x.id === id); return l ? `${l.id}. ${l.title}` : id; };
@@ -22,16 +43,25 @@
 
   // ---------- вкладки ----------
   const tabs = [...document.querySelectorAll("[role=tab]")];
+  let currentTab = "students";
   function show(name) {
-    tabs.forEach(t => t.setAttribute("aria-selected", t.dataset.tab === name));
+    currentTab = name;
+    tabs.forEach(t => {
+      const on = t.dataset.tab === name;
+      t.setAttribute("aria-selected", on);
+      t.tabIndex = on ? 0 : -1;
+    });
     document.querySelectorAll(".tab").forEach(s => s.hidden = s.id !== "tab-" + name);
     render(name);
   }
   tabs.forEach((t, i) => {
+    t.tabIndex = t.getAttribute("aria-selected") === "true" ? 0 : -1;
     t.addEventListener("click", () => show(t.dataset.tab));
     t.addEventListener("keydown", e => {
       const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-      if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; n.focus(); show(n.dataset.tab); }
+      const jump = e.key === "Home" ? tabs[0] : e.key === "End" ? tabs[tabs.length - 1] : null;
+      if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; e.preventDefault(); n.focus(); show(n.dataset.tab); }
+      else if (jump) { e.preventDefault(); jump.focus(); show(jump.dataset.tab); }
     });
   });
 
@@ -42,20 +72,91 @@
   }
 
   // ---------- Ученики ----------
+  let sortBy = "code", groupFilter = "";
+  const levelRank = l => ({ A1: 1, A2: 2, "A2+": 3, B1: 4, B2: 5, C1: 6 })[l] || 99;
+  const worksCount = code => state.works.filter(w => w.student === code).length;
+  const csvCell = v => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  function visibleStudents() {
+    let list = state.students.slice();
+    if (groupFilter) list = list.filter(s => s.group === groupFilter);
+    return list.sort((a, b) => {
+      if (sortBy === "level") return levelRank(a.level) - levelRank(b.level) || a.code.localeCompare(b.code, "ru", { numeric: true });
+      if (sortBy === "works") return worksCount(b.code) - worksCount(a.code) || a.code.localeCompare(b.code, "ru", { numeric: true });
+      return a.code.localeCompare(b.code, "ru", { numeric: true });
+    });
+  }
+  function fillGroupFilter() {
+    const sel = $("#groupFilter");
+    const groups = [...new Set(state.students.map(s => s.group))].sort((a, b) => a.localeCompare(b, "ru", { numeric: true }));
+    sel.innerHTML = `<option value="">Все группы</option>` + groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
+    if (groups.includes(groupFilter)) sel.value = groupFilter;
+    else { sel.value = ""; groupFilter = ""; }
+  }
   function renderStudents() {
     const opt = (v) => `<option value="">—</option>` + [1, 2, 3, 4, 5].map(n => `<option ${v === n ? "selected" : ""}>${n}</option>`).join("");
-    $("#studentsTable").innerHTML = `<tr><th>Код</th><th>Группа</th><th>Уровень</th><th>Работ</th><th>Говорение</th><th>Работа в команде</th><th>Презентация</th><th>Проекты (через ;)</th><th></th></tr>` +
-      state.students.map(s => {
+    const empty = $("#studentsEmpty");
+    const wrap = $("#studentsTable").closest(".scroll");
+    const toolbar = $("#studentsToolbar");
+    if (!state.students.length) {
+      toolbar.hidden = true;
+      wrap.hidden = true;
+      empty.hidden = false;
+      empty.innerHTML = emptyState("Учеников пока нет",
+        "Добавьте первого ученика в форме ниже — понадобятся только код, группа и уровень. Можно начать с демонстрационных данных: три профиля с работами и оценками.",
+        `<button type="button" class="primary" data-act="demo">Загрузить демо-данные</button>
+         <button type="button" data-act="focus-add">Заполнить форму</button>`);
+      return;
+    }
+    toolbar.hidden = false;
+    fillGroupFilter();
+    const list = visibleStudents();
+    if (!list.length) {
+      wrap.hidden = true;
+      empty.hidden = false;
+      empty.innerHTML = emptyState("В этой группе пока нет учеников",
+        `Фильтр «${groupFilter}» не совпал ни с одним профилем. Сбросьте фильтр — вернутся все ученики.`,
+        `<button type="button" class="primary" data-act="reset-filter">Показать всех</button>`);
+      return;
+    }
+    wrap.hidden = false;
+    empty.hidden = true;
+    empty.innerHTML = "";
+    $("#studentsTable").innerHTML = `<thead><tr><th scope="col">Код</th><th scope="col">Группа</th><th scope="col">Уровень</th><th scope="col">Работ</th><th scope="col">Говорение</th><th scope="col">Работа в команде</th><th scope="col">Презентация</th><th scope="col">Проекты (через ;)</th><th scope="col"><span class="sr-only">Действия</span></th></tr></thead>` +
+      `<tbody>` + list.map(s => {
         const t = s.teacher || {};
-        return `<tr data-code="${esc(s.code)}"><td><b>${esc(s.code)}</b></td><td>${esc(s.group)}</td><td>${esc(s.level)}</td>
-        <td>${state.works.filter(w => w.student === s.code).length}</td>
-        <td><select data-f="speaking" aria-label="Говорение ${esc(s.code)}">${opt(t.speaking)}</select></td>
-        <td><select data-f="teamwork" aria-label="Работа в команде ${esc(s.code)}">${opt(t.teamwork)}</select></td>
-        <td><select data-f="presentation" aria-label="Презентация ${esc(s.code)}">${opt(t.presentation)}</select></td>
-        <td><input data-f="projects" value="${esc((s.projects || []).join("; "))}" aria-label="Проекты ${esc(s.code)}"></td>
-        <td><button data-del="${esc(s.code)}" class="link">удалить</button></td></tr>`;
-      }).join("");
+        return `<tr data-code="${esc(s.code)}"><td data-label="Код"><b>${esc(s.code)}</b></td><td data-label="Группа">${esc(s.group)}</td>
+        <td data-label="Уровень"><span title="${esc(LEVEL_NAMES[s.level] || s.level)}">${esc(s.level)}</span></td>
+        <td data-label="Работ">${worksCount(s.code)}</td>
+        <td data-label="Говорение"><select data-f="speaking" aria-label="Говорение ${esc(s.code)}">${opt(t.speaking)}</select></td>
+        <td data-label="Работа в команде"><select data-f="teamwork" aria-label="Работа в команде ${esc(s.code)}">${opt(t.teamwork)}</select></td>
+        <td data-label="Презентация"><select data-f="presentation" aria-label="Презентация ${esc(s.code)}">${opt(t.presentation)}</select></td>
+        <td data-label="Проекты"><input data-f="projects" value="${esc((s.projects || []).join("; "))}" aria-label="Проекты ${esc(s.code)}" placeholder="через ;" title="Несколько проектов — через точку с запятой"></td>
+        <td data-label="Действия"><button type="button" data-del="${esc(s.code)}" class="link" aria-label="Удалить ученика ${esc(s.code)} и все его работы">удалить</button></td></tr>`;
+      }).join("") + `</tbody>`;
   }
+  $("#groupFilter").addEventListener("change", e => { groupFilter = e.target.value; renderStudents(); });
+  $("#studentsSort").addEventListener("change", e => { sortBy = e.target.value; renderStudents(); });
+  $("#exportCsv").addEventListener("click", () => {
+    const head = ["Код", "Группа", "Уровень", "Работ", "Говорение", "Работа в команде", "Презентация", "Проекты"];
+    const rows = visibleStudents().map(s => {
+      const t = s.teacher || {};
+      return [s.code, s.group, s.level, worksCount(s.code), t.speaking ?? "", t.teamwork ?? "", t.presentation ?? "", (s.projects || []).join("; ")];
+    });
+    download("ученики.csv", [head, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n"), "text/csv");
+    announce(`Экспорт CSV: строк — ${rows.length}.`);
+  });
+  $("#studentsEmpty").addEventListener("click", e => {
+    const b = e.target.closest("[data-act=focus-add]");
+    if (b) document.querySelector('#addStudent [name=code]').focus();
+  });
+  document.addEventListener("click", e => {
+    const go = e.target.closest("[data-goto]");
+    if (go) { show(go.dataset.goto); return; }
+    if (e.target.closest('[data-act="demo"]')) { loadDemo(); return; }
+    if (e.target.closest('[data-act="reset-filter"]')) {
+      groupFilter = ""; $("#groupFilter").value = ""; renderStudents();
+    }
+  });
   $("#studentsTable").addEventListener("change", e => {
     const tr = e.target.closest("tr"); if (!tr) return;
     const s = student(tr.dataset.code), f = e.target.dataset.f;
@@ -118,14 +219,24 @@
   }
 
   function renderWorks() {
+    const hasStudents = state.students.length > 0;
+    wf.hidden = !hasStudents;
+    document.querySelector(".works-head").hidden = !hasStudents;
     fillStudentSelect(wf.student, true);
     const f = $("#worksFilter"); fillStudentSelect(f, true);
     const code = f.value;
     const a = code ? analyze(code) : null;
     const list = state.works.filter(w => w.student === code).sort((x, y) => x.date.localeCompare(y.date));
+    if (!hasStudents) {
+      $("#worksList").innerHTML = emptyState("Сначала добавьте ученика",
+        "Каждая работа привязана к ученику. Добавьте профиль на вкладке «Ученики» или загрузите демо-данные.",
+        `<button type="button" class="primary" data-goto="students">Перейти к ученикам</button>
+         <button type="button" data-act="demo">Загрузить демо-данные</button>`);
+      return;
+    }
     $("#worksList").innerHTML = list.length ? list.map(w => {
       const head = `<div class="w-head"><b>${EV.ruDate(w.date)}</b> · ${esc(lessonTitle(w.lesson))} · ${w.type === "test" ? "тест" : "письменная работа"}
-        <button class="link" data-delw="${esc(w.id)}">удалить</button></div>`;
+        <button type="button" class="link" data-delw="${esc(w.id)}" aria-label="Удалить работу от ${EV.ruDate(w.date)}">удалить</button></div>`;
       if (w.type === "test") return `<div class="card">${head}` + Object.entries(w.results).map(([k, [c, t]]) =>
         `<span class="chip">${{ listening: "Аудирование", reading: "Чтение", grammar: "Грамматика" }[k]}: ${c} из ${t}</span>`).join(" ") + `</div>`;
       const p = a.perWork.find(x => x.id === w.id);
@@ -135,7 +246,9 @@
         ${cov ? `<div class="meta">Лексика урока: <span class="ok">${esc(cov.vocabUsed.join(", ") || "—")}</span>${cov.vocabMissing.length ? ` · не использовано: <span class="miss">${esc(cov.vocabMissing.join(", "))}</span>` : ""}</div>
         <div class="meta">Грамматика урока: ${cov.grammarUsed.map(g => `<span class="ok">${esc(g.name)}</span> (${esc(g.examples.join("; "))})`).join(", ") || "—"}${cov.grammarMissing.length ? ` · нет: <span class="miss">${esc(cov.grammarMissing.map(g => g.name).join(", "))}</span>` : ""}</div>` : ""}
         ${p.errors.length ? `<ul class="errs">${p.errors.map(e => `<li><span class="tag ${e.type}">${e.type === "grammar" ? "грамматика" : "правописание"}</span> ${esc(e.message)}</li>`).join("")}</ul>` : ""}</div>`;
-    }).join("") : `<p class="hint">Работ пока нет.</p>`;
+    }).join("") : emptyState("Работ пока нет",
+      code ? `У ученика ${code} ещё нет работ. Загрузите первую работу в форме выше — текст эссе или результаты теста.` : "Выберите ученика, чтобы увидеть его работы.",
+      "");
   }
   $("#worksFilter").addEventListener("change", renderWorks);
   $("#worksList").addEventListener("click", e => {
@@ -169,17 +282,32 @@
   let current = null;
   function renderTeacher() {
     fillStudentSelect($("#tStudent"), true);
+    const hasStudents = state.students.length > 0;
+    $("#draftBtn").disabled = !hasStudents || !$("#tStudent").value;
+    if (!hasStudents) {
+      $("#tStatus").textContent = "нет учеников"; $("#tStatus").className = "badge";
+      $("#tAnalysis").innerHTML = emptyState("Кабинет ждёт ученика",
+        "Добавьте профиль на вкладке «Ученики» — тогда система посчитает объективные направления и подготовит черновик отчёта.",
+        `<button type="button" class="primary" data-goto="students">Перейти к ученикам</button>`);
+      $("#tEditor").hidden = true;
+      return;
+    }
     const code = $("#tStudent").value, rep = state.reports[code];
     $("#tStatus").textContent = rep && rep.approved ? "утверждён " + rep.approvedAt : rep ? "черновик" : "нет отчёта";
     $("#tStatus").className = "badge " + (rep && rep.approved ? "good" : "");
     if (rep) { current = analyze(code); showAnalysis(current); $("#tText").value = rep.text; $("#tEditor").hidden = false; check(); }
-    else { $("#tAnalysis").innerHTML = ""; $("#tEditor").hidden = true; }
+    else {
+      current = analyze(code);
+      showAnalysis(current);
+      $("#tAnalysis").insertAdjacentHTML("afterbegin", `<p class="hint">По ученику ${esc(code)} черновик ещё не сформирован. Нажмите «Сформировать черновик» — текст соберётся из этих данных, его можно будет отредактировать и утвердить.</p>`);
+      $("#tEditor").hidden = true;
+    }
   }
   function showAnalysis(a) {
     const rows = EV.DIRS.map(([k]) => a.directions[k]).concat(a.soft.map(s => ({ ...s, basis: s.score ? "оценка педагога" : "нужна оценка педагога" })));
-    $("#tAnalysis").innerHTML = `<div class="scroll"><table><tr><th>Направление</th><th>Балл</th><th>Основание</th><th>Тип</th></tr>` +
-      rows.map(d => `<tr><td>${esc(d.name)}</td><td class="score s${d.score || 0}">${d.score || "—"}</td><td>${esc(d.basis)}</td>
-        <td><span class="tag ${d.kind}">${d.kind === "objective" ? "считает система" : "решает педагог"}</span></td></tr>`).join("") + `</table></div>
+    $("#tAnalysis").innerHTML = `<div class="scroll"><table class="data-table"><thead><tr><th scope="col">Направление</th><th scope="col">Балл</th><th scope="col">Основание</th><th scope="col">Тип</th></tr></thead><tbody>` +
+      rows.map(d => `<tr><td data-label="Направление">${esc(d.name)}</td><td data-label="Балл" class="score s${d.score || 0}">${d.score || "—"}</td><td data-label="Основание">${esc(d.basis)}</td>
+        <td data-label="Тип"><span class="tag ${d.kind}">${d.kind === "objective" ? "считает система" : "решает педагог"}</span></td></tr>`).join("") + `</tbody></table></div>
       <p class="hint">Правила шкал: ${esc(a.rules.percent)}. ${esc(a.rules.errors)}. ${esc(a.rules.writing)}.</p>
       ${a.topErrors.length ? `<p><b>Частые ошибки:</b> ${a.topErrors.slice(0, 4).map(e => `${esc(e.topic)} — ${e.count}`).join("; ")}</p>` : ""}`;
     $("#tPrompt").value = EV.buildPrompt(a, KB);
@@ -192,8 +320,7 @@
     $("#approveBtn").disabled = !r.ok;
     return r.ok;
   }
-  $("#tStudent").addEventListener("change", renderTeacher);
-  $("#draftBtn").addEventListener("click", () => {
+  $("#tStudent").addEventListener("change", renderTeacher);  $("#draftBtn").addEventListener("click", () => {
     const code = $("#tStudent").value; if (!code) return;
     const rep = state.reports[code];
     if (rep && rep.approved && !confirm("Отчёт уже утверждён. Сформировать новый черновик?")) return;
@@ -216,11 +343,23 @@
     const rep = state.reports[$("#tStudent").value]; if (!rep) return;
     rep.approved = false; save(); renderTeacher();
   });
-  $("#copyPrompt").addEventListener("click", () => { navigator.clipboard && navigator.clipboard.writeText($("#tPrompt").value); });
+  $("#copyPrompt").addEventListener("click", () => {
+    const text = $("#tPrompt").value;
+    if (!navigator.clipboard) { announce("Буфер обмена недоступен — выделите текст запроса и скопируйте вручную.", true); return; }
+    navigator.clipboard.writeText(text)
+      .then(() => announce("Запрос для языковой модели скопирован."))
+      .catch(() => announce("Не удалось скопировать — выделите текст запроса и скопируйте вручную.", true));
+  });
 
   // ---------- Родителю ----------
   function renderParent() {
     fillStudentSelect($("#pStudent"), true);
+    if (!state.students.length) {
+      $("#pReport").innerHTML = emptyState("Отчётов пока нет",
+        "Родитель видит отчёт только после утверждения педагогом. Сначала добавьте ученика на вкладке «Ученики».",
+        `<button type="button" class="primary" data-goto="students">Перейти к ученикам</button>`);
+      return;
+    }
     const rep = state.reports[$("#pStudent").value];
     $("#pReport").innerHTML = rep && rep.approved
       ? `<article class="report">${esc(rep.text).replace(/\n/g, "<br>")}<p class="hint">Утверждено педагогом: ${esc(rep.approvedAt)}</p></article>`
@@ -240,7 +379,8 @@
   }
   function download(name, text, type) {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob(["﻿" + text], { type })); a.download = name; a.click();
+    const bom = /csv/i.test(type) ? "﻿" : "";
+    a.href = URL.createObjectURL(new Blob([bom + text], { type })); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   $("#dlSystem").addEventListener("click", () =>
@@ -248,9 +388,9 @@
   function showExp(csv) {
     const res = EV.agreement(systemRows(), EV.parseCSV(csv.replace(/^﻿/, "")));
     const pc = g => g.percent === null ? "—" : g.percent + " % (" + g.within1 + " из " + g.n + ")";
-    $("#expResult").innerHTML = `<div class="scroll"><table><tr><th>Направление</th><th>Тип</th><th>Пар</th><th>Совпадение ±1</th></tr>` +
-      res.rows.map(r => `<tr><td>${esc(r.direction)}</td><td>${r.kind === "objective" ? "объективное" : "интерпретационное"}</td><td>${r.n}</td><td>${r.percent} %</td></tr>`).join("") +
-      `</table></div><p><b>Объективные:</b> ${pc(res.objective)} · <b>интерпретационные:</b> ${pc(res.interpretive)}</p>
+    $("#expResult").innerHTML = `<div class="scroll"><table class="data-table"><thead><tr><th scope="col">Направление</th><th scope="col">Тип</th><th scope="col">Пар</th><th scope="col">Совпадение ±1</th></tr></thead><tbody>` +
+      res.rows.map(r => `<tr><td data-label="Направление">${esc(r.direction)}</td><td data-label="Тип">${r.kind === "objective" ? "объективное" : "интерпретационное"}</td><td data-label="Пар">${r.n}</td><td data-label="Совпадение ±1">${r.percent} %</td></tr>`).join("") +
+      `</tbody></table></div><p><b>Объективные:</b> ${pc(res.objective)} · <b>интерпретационные:</b> ${pc(res.interpretive)}</p>
       <p class="fact ${res.hypothesis ? "good" : "bad"}">Гипотеза (≥ 85 % по объективным и меньше по интерпретационным): ${res.hypothesis ? "подтверждается на этих данных" : "не подтверждается на этих данных"}.</p>`;
   }
   $("#teacherCsv").addEventListener("change", async e => { const f = e.target.files[0]; if (f) showExp(await f.text()); });
@@ -261,10 +401,17 @@
   });
 
   // ---------- Данные ----------
-  $("#exportBtn").addEventListener("click", () => download("eduvision-данные.json", JSON.stringify(state, null, 2), "application/json"));
+  $("#exportBtn").addEventListener("click", () => {
+    download("eduvision-данные.json", JSON.stringify(state, null, 2), "application/json");
+    announce("Данные выгружены в JSON.");
+  });
   $("#importFile").addEventListener("change", async e => {
     const f = e.target.files[0]; if (!f) return;
-    try { const s = JSON.parse((await f.text()).replace(/^﻿/, "")); if (!s.students || !s.works) throw new Error("нет students/works"); state = { reports: {}, ...s }; save(); alert("Импортировано"); }
+    try {
+      const s = JSON.parse((await f.text()).replace(/^﻿/, ""));
+      if (!Array.isArray(s.students) || !Array.isArray(s.works)) throw new Error("нет students/works");
+      state = normalize({ reports: {}, ...s }); save(); alert("Импортировано"); render(currentTab);
+    }
     catch (err) { alert("Не удалось импортировать: " + err.message); }
   });
   $("#resetBtn").addEventListener("click", () => { if (confirm("Заменить данные демонстрационными?")) { state = { ...clone(DEMO), reports: {} }; save(); render("data"); } });
@@ -273,12 +420,15 @@
     state = { students: [], works: [], reports: {} }; save(); render("data");
   });
   function renderKB() {
-    $("#kbTable").innerHTML = `<tr><th>Урок</th><th>CEFR</th><th>Тема</th><th>Лексика</th><th>Грамматика</th><th>Ожидаемый результат</th></tr>` +
-      KB.lessons.map(l => `<tr><td>${esc(lessonTitle(l.id))}</td><td>${l.cefr}</td><td>${esc(l.topic)}</td><td>${esc(l.vocab.join(", "))}</td><td>${esc(l.grammar.map(g => g.name).join("; "))}</td><td>${esc(l.expected)}</td></tr>`).join("");
+    $("#kbTable").innerHTML = `<thead><tr><th scope="col">Урок</th><th scope="col">CEFR</th><th scope="col">Тема</th><th scope="col">Лексика</th><th scope="col">Грамматика</th><th scope="col">Ожидаемый результат</th></tr></thead>` +
+      `<tbody>` + KB.lessons.map(l => `<tr><td data-label="Урок">${esc(lessonTitle(l.id))}</td><td data-label="CEFR">${l.cefr}</td><td data-label="Тема">${esc(l.topic)}</td><td data-label="Лексика">${esc(l.vocab.join(", "))}</td><td data-label="Грамматика">${esc(l.grammar.map(g => g.name).join("; "))}</td><td data-label="Ожидаемый результат">${esc(l.expected)}</td></tr>`).join("") + `</tbody>`;
+  }
+  function renderExp() {
+    if (!$("#expResult").innerHTML) $("#expResult").innerHTML = `<p class="hint">Результат появится здесь после загрузки CSV педагога или нажатия «Взять пример».</p>`;
   }
 
   function render(name) {
-    ({ students: renderStudents, works: renderWorks, teacher: renderTeacher, parent: renderParent, exp: () => {}, data: renderKB })[name]();
+    ({ students: renderStudents, works: renderWorks, teacher: renderTeacher, parent: renderParent, exp: renderExp, data: renderKB })[name]();
   }
   show("students");
 })();

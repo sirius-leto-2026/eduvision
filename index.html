@@ -22,36 +22,69 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<a class="skip" href="#main">Перейти к содержимому</a>
 <header>
   <div class="brand"><span class="logo" aria-hidden="true">EV</span><div><b>EduVision</b><small>отчёт об образовательном прогрессе ученика · прототип</small></div></div>
   <nav role="tablist" aria-label="Разделы">
-    <button role="tab" data-tab="students" aria-selected="true">Ученики</button>
-    <button role="tab" data-tab="works">Работы</button>
-    <button role="tab" data-tab="teacher">Кабинет педагога</button>
-    <button role="tab" data-tab="parent">Родителю</button>
-    <button role="tab" data-tab="exp">Опыт</button>
-    <button role="tab" data-tab="data">Данные</button>
+    <button role="tab" id="tab-btn-students" data-tab="students" aria-controls="tab-students" aria-selected="true">Ученики</button>
+    <button role="tab" id="tab-btn-works" data-tab="works" aria-controls="tab-works" aria-selected="false" tabindex="-1">Работы</button>
+    <button role="tab" id="tab-btn-teacher" data-tab="teacher" aria-controls="tab-teacher" aria-selected="false" tabindex="-1">Кабинет педагога</button>
+    <button role="tab" id="tab-btn-parent" data-tab="parent" aria-controls="tab-parent" aria-selected="false" tabindex="-1">Родителю</button>
+    <button role="tab" id="tab-btn-exp" data-tab="exp" aria-controls="tab-exp" aria-selected="false" tabindex="-1">Опыт</button>
+    <button role="tab" id="tab-btn-data" data-tab="data" aria-controls="tab-data" aria-selected="false" tabindex="-1">Данные</button>
   </nav>
 </header>
 
-<main>
+<main id="main" tabindex="-1">
   <!-- Ученики -->
-  <section id="tab-students" class="tab">
+  <section id="tab-students" class="tab" role="tabpanel" aria-labelledby="tab-btn-students" tabindex="0">
     <h1>Цифровые профили</h1>
     <p class="hint">Ученики хранятся только по коду, без ФИО. Говорение и мягкие навыки — интерпретационные направления: их оценивает педагог.</p>
-    <div class="scroll"><table id="studentsTable"></table></div>
-    <form id="addStudent" class="row">
-      <label>Код <input name="code" required placeholder="S-040" pattern="[A-Za-z]-?\d+"></label>
-      <label>Группа <input name="group" required placeholder="A2-1"></label>
-      <label>Уровень <select name="level"><option>A1</option><option selected>A2</option><option>B1</option></select></label>
-      <label class="consent"><input type="checkbox" name="consent" required> Есть письменное согласие родителя (законного представителя) на обработку данных ученика (<a href="privacy.html">политика</a>)</label>
-      <button type="submit">Добавить ученика</button>
+    <div class="toolbar" id="studentsToolbar">
+      <label>Группа
+        <select id="groupFilter">
+          <option value="">Все группы</option>
+        </select>
+      </label>
+      <label>Сортировка
+        <select id="studentsSort">
+          <option value="code">По коду</option>
+          <option value="level">По уровню (A1 → B1)</option>
+          <option value="works">По числу работ</option>
+        </select>
+      </label>
+      <button id="exportCsv" type="button">Экспорт таблицы в CSV</button>
+    </div>
+    <div class="table-wrap">
+      <div class="scroll"><table id="studentsTable" class="data-table"></table></div>
+      <div id="studentsEmpty" class="empty" hidden></div>
+    </div>
+    <form id="addStudent" class="row add-form">
+      <label>Код
+        <input name="code" required placeholder="S-040" pattern="[A-Za-z]-?\d+" autocomplete="off" aria-describedby="codeHint">
+        <small class="field-hint" id="codeHint">Латиница и цифры, например S-040. ФИО не вводится.</small>
+      </label>
+      <label>Группа
+        <input name="group" required placeholder="A2-1" autocomplete="off" aria-describedby="groupHint">
+        <small class="field-hint" id="groupHint">Например A2-1: уровень и номер группы.</small>
+      </label>
+      <label>Уровень
+        <select name="level">
+          <option value="A1">A1 — начальный</option>
+          <option value="A2" selected>A2 — элементарный</option>
+          <option value="B1">B1 — средний</option>
+        </select>
+        <small class="field-hint">Шкала CEFR.</small>
+      </label>
+      <label class="consent"><input type="checkbox" name="consent" required> <span>Есть письменное согласие родителя (законного представителя) на обработку данных ученика (<a href="privacy.html">политика</a>)</span></label>
+      <button type="submit" class="primary">Добавить ученика</button>
     </form>
   </section>
 
   <!-- Работы -->
-  <section id="tab-works" class="tab" hidden>
+  <section id="tab-works" class="tab" role="tabpanel" aria-labelledby="tab-btn-works" tabindex="0" hidden>
     <h1>Загрузка работ</h1>
+    <p class="hint">Письменные работы проверяются по правилам курса, тесты считают процент верных ответов. Сохранение — в этом браузере.</p>
     <form id="addWork" class="card">
       <div class="row">
         <label>Ученик <select name="student" required></select></label>
@@ -65,37 +98,41 @@
         <div class="row">
           <label>Фото работы <input type="file" id="photo" accept="image/*"></label>
           <button type="button" id="ocrBtn">Распознать текст (OCR)</button>
-          <span id="ocrStatus" class="hint" aria-live="polite"></span>
+          <span id="ocrStatus" class="hint" role="status" aria-live="polite"></span>
         </div>
       </div>
       <div class="test-only row" hidden>
-        <label>Аудирование <input name="l1" type="number" min="0" size="3" placeholder="верно"> из <input name="l2" type="number" min="1" placeholder="всего"></label>
-        <label>Чтение <input name="r1" type="number" min="0" placeholder="верно"> из <input name="r2" type="number" min="1" placeholder="всего"></label>
-        <label>Грамматика <input name="g1" type="number" min="0" placeholder="верно"> из <input name="g2" type="number" min="1" placeholder="всего"></label>
+        <label>Аудирование <input name="l1" type="number" min="0" placeholder="верно" aria-label="Аудирование: верных ответов"> из <input name="l2" type="number" min="1" placeholder="всего" aria-label="Аудирование: всего заданий"></label>
+        <label>Чтение <input name="r1" type="number" min="0" placeholder="верно" aria-label="Чтение: верных ответов"> из <input name="r2" type="number" min="1" placeholder="всего" aria-label="Чтение: всего заданий"></label>
+        <label>Грамматика <input name="g1" type="number" min="0" placeholder="верно" aria-label="Грамматика: верных ответов"> из <input name="g2" type="number" min="1" placeholder="всего" aria-label="Грамматика: всего заданий"></label>
       </div>
       <p class="hint">Реальные работы загружаются только с письменного согласия родителей. Фото распознаётся в браузере и никуда не отправляется.</p>
-      <label class="consent"><input type="checkbox" name="consent" required> Есть письменное согласие родителя (законного представителя) на загрузку этой работы (<a href="privacy.html">политика</a>)</label>
-      <button type="submit">Сохранить работу</button>
+      <label class="consent"><input type="checkbox" name="consent" required> <span>Есть письменное согласие родителя (законного представителя) на загрузку этой работы (<a href="privacy.html">политика</a>)</span></label>
+      <button type="submit" class="primary">Сохранить работу</button>
     </form>
-    <h2>Работы ученика <select id="worksFilter" aria-label="Ученик"></select></h2>
+    <div class="works-head">
+      <h2>Работы ученика</h2>
+      <label class="inline">Ученик <select id="worksFilter"></select></label>
+    </div>
     <div id="worksList"></div>
   </section>
 
   <!-- Кабинет педагога -->
-  <section id="tab-teacher" class="tab" hidden>
+  <section id="tab-teacher" class="tab" role="tabpanel" aria-labelledby="tab-btn-teacher" tabindex="0" hidden>
     <h1>Кабинет педагога</h1>
+    <p class="hint">Система считает объективные направления, педагог оценивает говорение и мягкие навыки. Черновик отчёта можно править, сверка фактов не даст утвердить текст с числами, которых нет в данных.</p>
     <div class="row">
       <label>Ученик <select id="tStudent"></select></label>
-      <button id="draftBtn">Сформировать черновик</button>
+      <button id="draftBtn" type="button" class="primary">Сформировать черновик</button>
       <span id="tStatus" class="badge"></span>
     </div>
     <div id="tAnalysis"></div>
     <div id="tEditor" hidden>
       <h2>Текст отчёта <small class="hint">можно править</small></h2>
       <textarea id="tText" rows="22"></textarea>
-      <div id="factBox" class="fact" aria-live="polite"></div>
+      <div id="factBox" class="fact" role="status" aria-live="polite"></div>
       <div class="row">
-        <button id="approveBtn" class="primary">Утвердить и передать родителю</button>
+        <button id="approveBtn" type="button" class="primary">Утвердить и передать родителю</button>
         <button id="revokeBtn" type="button">Отозвать</button>
       </div>
       <details><summary>Запрос для языковой модели (только посчитанные данные)</summary>
@@ -107,14 +144,14 @@
   </section>
 
   <!-- Родителю -->
-  <section id="tab-parent" class="tab" hidden>
+  <section id="tab-parent" class="tab" role="tabpanel" aria-labelledby="tab-btn-parent" tabindex="0" hidden>
     <h1>Отчёт для родителей</h1>
     <label>Код ученика <select id="pStudent"></select></label>
     <div id="pReport"></div>
   </section>
 
   <!-- Опыт -->
-  <section id="tab-exp" class="tab" hidden>
+  <section id="tab-exp" class="tab" role="tabpanel" aria-labelledby="tab-btn-exp" tabindex="0" hidden>
     <h1>Опыт «система против педагогов»</h1>
     <ol class="hint">
       <li>Скачайте оценки системы по всем ученикам.</li>
@@ -122,7 +159,7 @@
       <li>Загрузите CSV педагога — система посчитает долю совпадений в пределах ±1 балла.</li>
     </ol>
     <div class="row">
-      <button id="dlSystem">Скачать оценки системы (CSV)</button>
+      <button id="dlSystem" type="button">Скачать оценки системы (CSV)</button>
       <label>CSV педагога <input type="file" id="teacherCsv" accept=".csv,text/csv"></label>
       <button id="demoCsv" type="button">Взять пример</button>
     </div>
@@ -130,7 +167,7 @@
   </section>
 
   <!-- Данные -->
-  <section id="tab-data" class="tab" hidden>
+  <section id="tab-data" class="tab" role="tabpanel" aria-labelledby="tab-btn-data" tabindex="0" hidden>
     <h1>Данные и конфиденциальность</h1>
     <ul class="hint">
       <li>Все данные хранятся только в этом браузере (localStorage); cookie и аналитика не используются.</li>
@@ -139,16 +176,16 @@
       <li>Итоговую оценку и текст отчёта утверждает педагог; без утверждения родитель отчёт не видит.</li>
     </ul>
     <div class="row">
-      <button id="exportBtn">Экспорт JSON</button>
+      <button id="exportBtn" type="button">Экспорт JSON</button>
       <label>Импорт JSON <input type="file" id="importFile" accept=".json,application/json"></label>
-      <button id="resetBtn">Вернуть демо-данные</button>
-      <button id="wipeBtn" class="danger">Удалить все данные</button>
+      <button id="resetBtn" type="button">Вернуть демо-данные</button>
+      <button id="wipeBtn" type="button" class="danger">Удалить все данные</button>
     </div>
     <h2>Библиотека знаний</h2>
-    <div class="scroll"><table id="kbTable"></table></div>
+    <div class="scroll"><table id="kbTable" class="data-table"></table></div>
   </section>
 </main>
-<footer>Прототип проекта «EduVision» · Сириус.Лето 2026/27 · демонстрационные данные · организатор: команда проекта Сириус.Лето · <a href="privacy.html">Политика конфиденциальности</a> · <a href="terms.html">Условия использования</a></footer>
+<footer>Прототип проекта «EduVision» · Сириус.Лето 2026/27 · демонстрационные данные · организатор: команда проекта Сириус.Лето · <a href="privacy.html">Политика конфиденциальности</a> · <a href="terms.html">Условия использования</a><br><span id="saveStatus" class="save-status" role="status" aria-live="polite"></span></footer>
 
 <script src="data.js" defer></script>
 <script src="analyzer.js" defer></script>
